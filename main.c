@@ -110,13 +110,12 @@ GLuint line_shader_program;
 float view_matrix[] = M_MAT4_IDENTITY();
 float projection_matrix[] = M_MAT4_IDENTITY();
 float model_matrix[] = M_MAT4_IDENTITY();
-float mvp_matrix[] = M_MAT4_IDENTITY();
 
-float vertices[8] = {0, 0, 0, 1, 1, 0, 1, 1};
+float vertices[8] = {0, 0, 0, 0.1, 0.1, 0, 0.1, 0.1};
 
 int main(int argc, char const *argv[]){
 	int win_w = 500;
-	int win_h = 200;
+	int win_h = 300;
 
 	GLFWwindow* window;
 	if(!glfwInit()) {l("glfw init failed");} else {l("Glfw initialized");}
@@ -141,12 +140,13 @@ int main(int argc, char const *argv[]){
 	char str_line_vert_shader[] =
 	"attribute vec3 position;"
 	"uniform float u_time;"
+	"uniform mat4 u_model_matrix;"
+	"uniform mat4 u_view_matrix;"
+	"uniform mat4 u_projection_matrix;"
 	"varying float v_time;"
 	"void main(){"
-	"vec3 np = position;"
 	"v_time = u_time;"
-	"np.y = np.y - sin(u_time);"
-	"gl_Position = vec4(np,1.0);"
+	"gl_Position =  u_projection_matrix * u_view_matrix * u_model_matrix * vec4(position,1.0);"
 	"}";
 
 	char str_line_frag_shader[] =
@@ -156,22 +156,12 @@ int main(int argc, char const *argv[]){
 	"}"
 	;
 
-	// camera
-	/*
-	float3 camera_position = {0,0,-1};
-	float3 camera_direction = {0,0,1};
-	float3 camera_up = {0,1,0};
-	m_mat4_lookat(view_matrix, &camera_position, &camera_direction, &camera_up);
-	lm("CameraLookat? ", view_matrix);
+	
+	m_mat4_ortho(projection_matrix, -1.0, 1.0, -1.0, 1.0, 1, 150);
+	lm("Ortho projection? ", projection_matrix);	
 
-	float projection_fov = 0.4;
-	float projection_ratio = 0.5;
-	float projection_znear = 1;
-	float projection_zfar = 10;
-	m_mat4_perspective(projection_matrix, projection_fov, projection_ratio, projection_znear, projection_zfar);
-	lm("Perspective? ", projection_matrix);
-	m_mat4_mul(mvp_matrix, view_matrix, projection_matrix );
-	*/
+
+
 
 	line_shader_program = compile_shader_program(str_line_vert_shader, str_line_frag_shader);
 
@@ -186,8 +176,30 @@ int main(int argc, char const *argv[]){
 		glClear(GL_COLOR_BUFFER_BIT);
 	
 
+
+		// camera
+		m_mat4_identity(view_matrix);
+		float3 camera_position = {0,0,-10};
+		float3 camera_direction = {(MOUSE_X-win_w/2.0)/win_w,0,1};
+		float3 camera_up = {0,1,0};
+		m_mat4_lookat(view_matrix, &camera_position, &camera_direction, &camera_up);
+		lm("CameraLookat? ", view_matrix);
+
+
+
+		float3 translation = {-0.5,sin(time),-9.0};
+		float3 axis = {0,0,1};
+		
+		//m_mat4_rotation_axis(model_matrix, &axis, time);
+		//m_mat4_translation(model_matrix, &translation);
+		
+
+
 		glUseProgram(line_shader_program);
 		glUniform1f(glGetUniformLocation(line_shader_program, "u_time"), time);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_model_matrix"), 1, GL_FALSE, model_matrix);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_view_matrix"), 1, GL_FALSE, view_matrix);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_projection_matrix"), 1, GL_FALSE, projection_matrix);
 
 		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, vertices);
 		glEnableVertexAttribArray(0);
@@ -198,7 +210,7 @@ int main(int argc, char const *argv[]){
 		// end
 		glfwSwapBuffers(window);
 		glfwPollEvents();
-		time+=0.1;
+		time +=0.001;
 	}
 
 	glfwMakeContextCurrent(NULL);
