@@ -2,11 +2,17 @@
 #include <GLFW/glfw3.h>
 #define M_MATH_IMPLEMENTATION
 #include "m_math.h"
-
+#include <string.h>
+#include <stdlib.h>
 float MOUSE_X = 0;
 float MOUSE_Y = 0;
 
+#include "cube.h"
+
 void l(char *s) {printf("%s\n", s);}
+void l3(char *s, float3 f) {
+	printf("%s %f %f %f\n", s,f.x,f.y,f.z);
+}
 void lm(char*name, float matrix[]) {
 	int index = 0;
 	printf("%s:\n", name);
@@ -20,14 +26,6 @@ void lm(char*name, float matrix[]) {
 
 }
 
-/**************************************************************************/
-/*
--- Draw a field with boundary lines
-
-
-
-*/
-/***************************************************************************/
 
 void close_callback(GLFWwindow * window){
    l("close_callback");
@@ -97,21 +95,42 @@ int compile_shader_program(const char* str_vert_shader, const char* str_frag_sha
 	l("Binding 0 -> position");
 	glBindAttribLocation(prog_object, 0, "position");
 
+	glBindAttribLocation(prog_object, 1, "color");
+
 	l("Linking shader program");
 	glLinkProgram(prog_object);
 
 	return prog_object;
 }
 
-GLuint line_vert_shader;
-GLuint line_frag_shader;
 GLuint line_shader_program;
+GLuint trace_points_shader_program;
 
 float view_matrix[] = M_MAT4_IDENTITY();
 float projection_matrix[] = M_MAT4_IDENTITY();
 float model_matrix[] = M_MAT4_IDENTITY();
 
 float vertices[8] = {0, 0, 0, 0.1, 0.1, 0, 0.1, 0.1};
+
+#define NUMBER_OF_FLOAT3_TRACE_POINTS 32
+float* trace_points;
+int trace_points_current_index = 0;
+
+void write_trace_point(float* trace_points, float3 point) {
+	trace_points[trace_points_current_index] = point.x;
+	trace_points[trace_points_current_index + 1] = point.y;
+	trace_points[trace_points_current_index + 2] = point.z;
+	printf("current index: %d\n", trace_points_current_index);	
+	printf("T: %f %f %f \n",trace_points[trace_points_current_index], trace_points[trace_points_current_index+1], trace_points[trace_points_current_index+2]);
+
+	trace_points_current_index += 3;
+	trace_points_current_index = trace_points_current_index % (NUMBER_OF_FLOAT3_TRACE_POINTS * 3);
+}
+
+void write_trace_point_xyz(float* trace_points, float x, float y, float z) {
+	float3 a = {x,y,z};
+	write_trace_point(trace_points, a);
+}
 
 int main(int argc, char const *argv[]){
 	int win_w = 500;
@@ -152,47 +171,87 @@ int main(int argc, char const *argv[]){
 	char str_line_frag_shader[] =
 	"varying float v_time;"
 	"void main() {"
-	"gl_FragColor = vec4 (clamp(sin(v_time/12.0),0.0,1.0), 0.7, 0.1, 1.0);"
-	"}"
-	;
+	"gl_FragColor = vec4 (1.0, 0.7, 0.1, 1.0);"
+	"}";
+
+	char str_trace_points_vert_shader[] =
+	"attribute vec3 position;"
+	"attribute vec3 color;"
+	"varying vec3 v_color;"
+	"uniform mat4 u_view_matrix;"
+	"uniform mat4 u_projection_matrix;"
+	"void main(){"
+	"v_color = color;"
+	"gl_Position =  u_projection_matrix * u_view_matrix * vec4(position, 1.0);"
+	"}";
+
+	char str_trace_points_frag_shader[] =
+	"varying vec3 v_color;"
+	"void main() {"
+	"gl_FragColor = vec4(v_color, 1.0);"
+	"}";
+
+	// alloc trace points
+	trace_points = (float*) malloc(NUMBER_OF_FLOAT3_TRACE_POINTS * 3 * sizeof(float)); // multiply by three to have space for 3 floats each
+	// todo: memcpy this?
+	// reset trace points
+	for(int i = 0; i< NUMBER_OF_FLOAT3_TRACE_POINTS; i++) {
+		trace_points[i] = 0;
+		trace_points[i + 1] = 0;
+		trace_points[i + 2] = 0;
+	}
+
 
 	
-	m_mat4_ortho(projection_matrix, -1.0, 1.0, -1.0, 1.0, 1, 150);
+	m_mat4_ortho(projection_matrix, -1.0, 1.0, -1.0, 1.0, 1, 550);
 	lm("Ortho projection? ", projection_matrix);	
 
-
-
-
 	line_shader_program = compile_shader_program(str_line_vert_shader, str_line_frag_shader);
+	trace_points_shader_program = compile_shader_program(str_trace_points_vert_shader, str_trace_points_frag_shader);
 
 	if (line_shader_program == 0){
 		l("ERROR creating shader program");
 		return 1;
 	}
 
-	glClearColor(0.0f, 0.0f, 0.5f, 1.0f);
+	if (trace_points_shader_program == 0) {
+		l("ERROR creating Point Trace shader program");
+		return 1;	
+	}
+
+
+	glPointSize(8.0);
+	float reference_offset = 4.5;
+
+		write_trace_point_xyz(trace_points, 0,0,0);
+		write_trace_point_xyz(trace_points, 0,0,0);
+
+		write_trace_point_xyz(trace_points, -reference_offset,0,0);
+		write_trace_point_xyz(trace_points, reference_offset,0,0);
+
+		write_trace_point_xyz(trace_points, 0,-reference_offset,0);
+		write_trace_point_xyz(trace_points, 0,reference_offset,0);
+
+		write_trace_point_xyz(trace_points, 0,0,-reference_offset);
+		write_trace_point_xyz(trace_points, 0,0,reference_offset);
+	
+
+	glEnable(GL_DEPTH_TEST);
+	glClearColor(0.9f, 0.9f, 0.9f, 1.0f);
 	float time = 0;
 	while(!glfwWindowShouldClose(window)) {
-		glClear(GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 	
 
 
 		// camera
 		m_mat4_identity(view_matrix);
-		float3 camera_position = {0,0,-10};
-		float3 camera_direction = {(MOUSE_X-win_w/2.0)/win_w,0,1};
+		//float3 camera_position = {4 * sin(time) ,sin(time), 4 * cos(time)};
+		float3 camera_position = {4 ,2*cos(time), 4};
+		float3 camera_direction = {0 - camera_position.x ,0 - camera_position.y , 0 - camera_position.z};
 		float3 camera_up = {0,1,0};
 		m_mat4_lookat(view_matrix, &camera_position, &camera_direction, &camera_up);
-		lm("CameraLookat? ", view_matrix);
-
-
-
-		float3 translation = {-0.5,sin(time),-9.0};
-		float3 axis = {0,0,1};
-		
-		//m_mat4_rotation_axis(model_matrix, &axis, time);
-		//m_mat4_translation(model_matrix, &translation);
-		
+		//lm("CameraLookat? ", view_matrix);
 
 
 		glUseProgram(line_shader_program);
@@ -206,11 +265,31 @@ int main(int argc, char const *argv[]){
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		glUseProgram(0);
 
+		// Draw trace points
+		glUseProgram(trace_points_shader_program);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_view_matrix"), 1, GL_FALSE, view_matrix);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_projection_matrix"), 1, GL_FALSE, projection_matrix);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, trace_points);
+		glEnableVertexAttribArray(0);
+		glDrawArrays(GL_LINES, 0, NUMBER_OF_FLOAT3_TRACE_POINTS);
+		glUseProgram(0);
+		
+		glUseProgram(trace_points_shader_program);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_view_matrix"), 1, GL_FALSE, view_matrix);
+		glUniformMatrix4fv(glGetUniformLocation(line_shader_program, "u_projection_matrix"), 1, GL_FALSE, projection_matrix);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, cube_vertices);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, cube_colors);
+		glEnableVertexAttribArray(0);
+		glEnableVertexAttribArray(1);
+		glDrawArrays(GL_TRIANGLES, 0, 36);
+		glUseProgram(0);
+		
+		// todo clean all these calls so it is easier to handle
 
 		// end
 		glfwSwapBuffers(window);
 		glfwPollEvents();
-		time +=0.001;
+		time +=0.01;
 	}
 
 	glfwMakeContextCurrent(NULL);
